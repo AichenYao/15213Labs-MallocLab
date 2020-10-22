@@ -89,16 +89,22 @@ static const size_t min_block_size = 2 * dsize;
  * TODO: explain what chunksize is
  * (Must be divisible by dsize)
  */
+//extend heap by chunksize bytes, moving the brk pointer up by this amount
 static const size_t chunksize = (1 << 12);
 
 /**
  * TODO: explain what alloc_mask is
  */
+//read the LSB from the header work which is a flag for whether the block is
+//allocated. If LSB is 1, then it is allocated, if it is 0, then it is free.
 static const word_t alloc_mask = 0x1;
 
 /**
  * TODO: explain what size_mask is
  */
+//Read all bits, exluding the last four to get the size of this block.
+//The last four bits had to be 0 since blocks are 16-byte aligned, the LSB
+//could be 1 in our implementation to indicate that the block is allocated.
 static const word_t size_mask = ~(word_t)0xF;
 
 /** @brief Represents the header and payload of one block in the heap */
@@ -109,7 +115,6 @@ typedef struct block {
     /**
      * @brief A pointer to the block payload.
      *
-     * TODO: feel free to delete this comment once you've read it carefully.
      * We don't know what the size of the payload will be, so we will declare
      * it as a zero-length array, which is a GCC compiler extension. This will
      * allow us to obtain a pointer to the start of the payload.
@@ -117,8 +122,7 @@ typedef struct block {
      * WARNING: A zero-length array must be the last element in a struct, so
      * there should not be any struct fields after it. For this lab, we will
      * allow you to include a zero-length array in a union, as long as the
-     * union is the last field in its containing struct. However, this is
-     * compiler-specific behavior and should be avoided in general.
+     * union is the last field in its containing struct. 
      *
      * WARNING: DO NOT cast this pointer to/from other types! Instead, you
      * should use a union to alias this zero-length array with another struct,
@@ -129,7 +133,6 @@ typedef struct block {
     /*
      * TODO: delete or replace this comment once you've thought about it.
      * Why can't we declare the block footer here as part of the struct?
-     * Why do we even have footers -- will the code work fine without them?
      * which functions actually use the data contained in footers?
      */
 } block_t;
@@ -451,11 +454,10 @@ static block_t *extend_heap(size_t size) {
      * starting one word BEFORE bp, but with the same size that we
      * originally requested?
      */
-
+    //bp is the pointer to the payload field of a block?
     // Initialize free block header/footer
     block_t *block = payload_to_header(bp);
     write_block(block, size, false);
-
     // Create new epilogue header
     block_t *block_next = find_next(block);
     write_epilogue(block_next);
@@ -505,6 +507,7 @@ static void split_block(block_t *block, size_t asize) {
  * @param[in] asize
  * @return
  */
+//this is a first-fit implementation
 static block_t *find_fit(size_t asize) {
     block_t *block;
 
