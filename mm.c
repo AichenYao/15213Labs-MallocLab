@@ -532,19 +532,30 @@ static block_t *find_fit(size_t asize) {
  * @return
  */
 bool mm_checkheap(int line) {
-    /*
-     * TODO: Delete this comment!
-     *
-     * You will need to write the heap checker yourself.
-     * Please keep modularity in mind when you're writing the heap checker!
-     *
-     * As a filler: one guacamole is equal to 6.02214086 x 10**23 guacas.
-     * One might even call it...  the avocado's number.
-     *
-     * Internal use only: If you mix guacamole on your bibimbap,
-     * do you eat it with a pair of chopsticks, or with a spoon?
-     */
-
+    //check that the epilogue and prologue both have size 0 and alloc true
+    block_t *block; //current block
+    block_t *startBlock;
+    block_t *endBlock;
+    block_t *nextBlock;
+    startBlock = mem_heap_lo();
+    assert(get_size(startBlock) == 0);
+    assert(get_alloc(startBlock) == true);
+    endBlock = mem_heap_hi() - 7;
+    assert(get_size(endBlock) == 0);
+    assert(get_alloc(endBlock) == true);
+    //check that each block's header and footer matches
+    //check that each block is bigger than the minimum size
+    //check that there are no consecutive free blocks
+    for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
+        size_t blockSize = get_size(block);
+        assert(blockSize >= 2 * dsize); //2*dsize is the minimum size of a block
+        word_t blockHeader = block->header;
+        word_t blockFooter = *(header_to_footer(block));
+        assert(extract_size(blockHeader) == extract_size(blockFooter));
+        assert(extract_alloc(blockHeader) == extract_alloc(blockFooter));
+        nextBlock = find_next(block);
+        assert(get_alloc(nextBlock) != get_alloc(block));
+    }
     return true;
 }
 
