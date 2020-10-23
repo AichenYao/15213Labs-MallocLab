@@ -409,22 +409,47 @@ static block_t *find_prev(block_t *block) {
  * @return
  */
 static block_t *coalesce_block(block_t *block) {
-    /*
-     * TODO: delete or replace this comment once you're done.
-     *
-     * Before you start, it will be helpful to review the "Dynamic Memory
-     * Allocation: Basic" lecture, and especially the four coalescing
-     * cases that are described.
-     *
-     * The actual content of the function will probably involve a call to
-     * find_prev(), and multiple calls to write_block(). For examples of how
-     * to use write_block(), take a look at split_block().
-     *
-     * Please do not reference code from prior semesters for this, including
-     * old versions of the 213 website. We also discourage you from looking
-     * at the malloc code in CS:APP and K&R, which make heavy use of macros
-     * and which we no longer consider to be good style.
-     */
+    
+    //  The actual content of the function will probably involve a call to
+    //  find_prev(), and multiple calls to write_block(). For examples of how
+    //  to use write_block(), take a look at split_block().
+    //  
+    dbg_requires(mm_checkheap(__LINE__));
+    block_t *prevBlock;
+    block_t *nextBlock;
+    bool prev_alloc;
+    bool next_alloc;
+    size_t current_size;
+    size_t next_size;
+    size_t prev_size;
+    if (block == NULL) {
+        return block;
+    }
+    current_size = get_size(block);
+    prevBlock = find_prev(block);
+    nextBlock = find_next(block);
+    prev_alloc = get_alloc(prevBlock);
+    next_alloc = get_alloc(nextBlock);
+    if (prev_alloc && next_alloc) {
+        //neither the prev not the next is free
+        return block;
+    }
+    else if (prev_alloc && !next_alloc) {
+        //next block is free, write to the current block
+        next_size = get_size(nextBlock);
+        write_block(block, current_size+next_size, false);
+    }
+    else if (!prev_alloc && next_alloc) {
+        //prev block is free, write to the previous block
+        prev_size = get_size(prevBlock);
+        write_block(prevBlock, current_size+prev_size, false);
+    }
+    else {
+        //the last case when both the two adjacent blocks are free
+        prev_size = get_size(prevBlock);
+        next_size = get_size(nextBlock);
+        write_block(prevBlock, current_size+prev_size+next_size, false);
+    }
     return block;
 }
 
@@ -577,12 +602,6 @@ bool mm_init(void) {
         return false;
     }
 
-    /*
-     * TODO: delete or replace this comment once you've thought about it.
-     * Think about why we need a heap prologue and epilogue. Why do
-     * they correspond to a block footer and header respectively?
-     */
-
     start[0] = pack(0, true); // Heap prologue (block footer)
     start[1] = pack(0, true); // Heap epilogue (block header)
 
@@ -593,7 +612,6 @@ bool mm_init(void) {
     if (extend_heap(chunksize) == NULL) {
         return false;
     }
-
     return true;
 }
 
@@ -659,6 +677,14 @@ void *malloc(size_t size) {
     dbg_ensures(mm_checkheap(__LINE__));
     return bp;
 }
+
+//four cases for coalescing
+//1.neither prev or next is free, the do nothing
+//2.either prev only or next only is free, add onto the size of the block that 
+//comes ahead and update the footer accordingly
+//3.both are free, add the size of all to that of prev
+
+   
 
 /**
  * @brief
