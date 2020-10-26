@@ -16,7 +16,8 @@
  *
  *************************************************************************
  *
- * @author Your Name <andrewid@andrew.cmu.edu>
+ * Name: Aichen Yao   
+ * Andrew ID: aicheny        
  */
 
 #include <assert.h>
@@ -395,10 +396,14 @@ static block_t *find_prev(block_t *block) {
 void add_to_list(block_t *block) {
     assert(get_alloc(block) == false);
     block_t *firstBlock = root;
-    assert(get_alloc(firstBlock) == false);
-    assert(firstBlock->prev == root);
-    firstBlock->prev = block;
+    if (firstBlock == NULL) {
+        root = block;
+        return;
+    }
+    assert(firstBlock != NULL);
     root = block;
+    block->next = firstBlock;
+    firstBlock->prev = block;
     return;
 }
 
@@ -407,17 +412,31 @@ void add_to_list(block_t *block) {
 //block and point the prev pointer of the next block to the previous block
 //two edge cases: 1. the block is the first in the free list
 //2. the block is the last in the free list
+//For each case, also take care of prev/next being NULL
 void remove_from_list(block_t *block) {
     assert(get_alloc(block) == false);
+    if (block == NULL) {
+        return;
+    }
     block_t *nextBlock = block->next;
     block_t *prevBlock = block->prev;
-    if (block->prev == root) {
+    if (prevBlock == root) {
+        if (nextBlock == NULL) {
+            root = NULL;
+            return;
+        }
+        dbg_assert(nextBlock != NULL);
         nextBlock->prev = root;
         root = nextBlock;
         return;
     }
-    if (block->next == NULL) {
-        prevBlock->prev = NULL;
+    if (nextBlock == NULL) {
+        if (prevBlock == root) {
+            root = NULL;
+            return;
+        }
+        dbg_assert(prevBlock != NULL);
+        prevBlock->next = NULL;
         return;
     }
     nextBlock->prev = prevBlock; //the normal case
@@ -449,6 +468,9 @@ static block_t *coalesce_block(block_t *block) {
     }
     else if (prev_alloc && !next_alloc) {
         //next block is free, write to the current block
+        if (nextBlock == NULL) {
+            return block;
+        }
         next_size = get_size(nextBlock);
         remove_from_list(nextBlock);
         write_block(block, current_size+next_size, false);
@@ -457,6 +479,9 @@ static block_t *coalesce_block(block_t *block) {
     }
     else if (!prev_alloc && next_alloc) {
         //prev block is free, write to the previous block
+        if (prevBlock == NULL) {
+            return block;
+        }
         prev_size = get_size(prevBlock);
         remove_from_list(prevBlock);
         write_block(prevBlock, current_size+prev_size, false);
@@ -465,6 +490,26 @@ static block_t *coalesce_block(block_t *block) {
     }
     else {
         //the last case when both the two adjacent blocks are free
+        //Note the edge cases that prevBlock and nextBlock might be NULL
+        //If they are NULL, get_alloc would return false
+        dbg_assert((!prev_alloc) && (!next_alloc));
+        if (prevBlock == NULL && nextBlock == NULL)
+            return block;
+        if (prevBlock == NULL && nextBlock != NULL) {
+            next_size = get_size(nextBlock);
+            remove_from_list(nextBlock);
+            write_block(block, current_size+next_size, false);
+            add_to_list(block);
+            return block;
+        }
+        if (prevBlock != NULL && nextBlock == NULL) {
+            prev_size = get_size(prevBlock);
+            remove_from_list(prevBlock);
+            write_block(prevBlock, current_size+prev_size, false);
+            add_to_list(prevBlock);
+            return prevBlock;
+        }
+        dbg_assert((prevBlock != NULL) && (nextBlock != NULL));
         prev_size = get_size(prevBlock);
         next_size = get_size(nextBlock);
         remove_from_list(prevBlock);
@@ -513,7 +558,6 @@ static block_t *extend_heap(size_t size) {
 
     // Coalesce in case the previous block was free
     block = coalesce_block(block);
-
     return block;
 }
 
