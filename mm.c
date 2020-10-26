@@ -109,8 +109,8 @@ typedef struct block {
     word_t header;
     union {
         struct {
-            void* prev;
-            void *next;
+            struct block *prev;
+            struct block *next;
         };
         char payload[0];
     };
@@ -282,6 +282,9 @@ static bool extract_alloc(word_t word) {
  * @return The allocation status of the block
  */
 static bool get_alloc(block_t *block) {
+    if (block == NULL) {
+        return false;
+    }
     return extract_alloc(block->header);
 }
 
@@ -441,30 +444,37 @@ static block_t *coalesce_block(block_t *block) {
     next_alloc = get_alloc(nextBlock);
     if (prev_alloc && next_alloc) {
         //neither the prev not the next is free
+        add_to_list(block);
         return block;
     }
     else if (prev_alloc && !next_alloc) {
         //next block is free, write to the current block
         next_size = get_size(nextBlock);
+        remove_from_list(nextBlock);
         write_block(block, current_size+next_size, false);
+        add_to_list(block);
         return block;
     }
     else if (!prev_alloc && next_alloc) {
         //prev block is free, write to the previous block
         prev_size = get_size(prevBlock);
+        remove_from_list(prevBlock);
         write_block(prevBlock, current_size+prev_size, false);
+        add_to_list(prevBlock);
         return prevBlock;
     }
     else {
         //the last case when both the two adjacent blocks are free
         prev_size = get_size(prevBlock);
         next_size = get_size(nextBlock);
+        remove_from_list(prevBlock);
+        remove_from_list(nextBlock);
         write_block(prevBlock, current_size+prev_size+next_size, false);
+        add_to_list(prevBlock);
         return prevBlock;
     }
     return block;
 }
-
 
 /**
  * @brief
@@ -527,11 +537,12 @@ static void split_block(block_t *block, size_t asize) {
     if ((block_size - asize) >= min_block_size) {
         block_t *block_next;
         write_block(block, asize, true);
+        remove_from_list(block);
 
         block_next = find_next(block);
         write_block(block_next, block_size - asize, false);
+        add_to_list(block_next);
     }
-
     dbg_ensures(get_alloc(block));
 }
 
@@ -548,18 +559,15 @@ static void split_block(block_t *block, size_t asize) {
  */
 static block_t *find_fit(size_t asize) {
     block_t *block;
-
-    // for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
-
-    //     if (!(get_alloc(block)) && (asize <= get_size(block))) {
-    //         return block;
-    //     }
-    // }
-    for (block = root; block->next != NULL; block = block->next)
+    if (root == NULL) {
+        return NULL;
+    }
+    for (block = root; block->next != NULL; block = block->next) {
         if (asize <= get_size(block)) {
             assert(!(get_alloc(block)));
             return block;
         }
+    }
     return NULL; // no fit found
 }
 
@@ -596,6 +604,9 @@ bool mm_checkheap(int line) {
         assert(extract_alloc(blockHeader) == extract_alloc(blockFooter));
         nextBlock = find_next(block);
         assert(get_alloc(nextBlock) != get_alloc(block));
+        block_t *prevBlock = find_prev(block);
+        dbg_assert((char*)block >= (char*)prevBlock+get_size(prevBlock));
+        dbg_assert((char*)block+get_size(block) <= (char*)nextBlock);
     }
     return true;
 }
@@ -649,9 +660,43 @@ bool mm_init(void) {
  * @param[in] size
  * @return
  */
-void *malloc(size_t size) {
-    dbg_requires(mm_checkheap(__LINE__));
 
+void print_heap()
+{   block_t *block;
+    dbg_printf("print heap \n");
+    for (block = heap_start; get_size(block) > 0; block = find_next(block))
+    {
+        dbg_printf("size: %zu   ",get_size(block));
+        if (get_alloc(block)) {
+            dbg_printf("true");
+            dbg_printf("\n");
+        }
+        if (!get_alloc(block)) {
+            dbg_printf("false");
+            dbg_printf("\n");
+        }
+    }
+    return;
+}
+
+void printList()
+{
+    block_t *block;
+    for (block = root; block->next != NULL; block = block->next)
+    {
+        dbg_printf("size: %zu    ", get_size(block));
+        if (get_alloc(block)) {
+            dbg_printf("true");
+            dbg_printf("\n");
+        }
+    }
+    return;
+}
+
+void *malloc(size_t size) {
+    print_heap();
+    printList();
+    dbg_requires(mm_checkheap(__LINE__));
     size_t asize;      // Adjusted block size
     size_t extendsize; // Amount to extend heap if no fit is found
     block_t *block;
@@ -838,6 +883,7 @@ void *calloc(size_t elements, size_t size) {
 
     return bp;
 }
+
 
 /*
  *****************************************************************************
