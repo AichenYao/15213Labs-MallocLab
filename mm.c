@@ -18,6 +18,7 @@
  *
  * Name: Aichen Yao   
  * Andrew ID: aicheny        
+ * Github Account: AichenYao
  */
 
 #include <assert.h>
@@ -394,16 +395,37 @@ static block_t *find_prev(block_t *block) {
 //Using LIFO policy, add the block to the front of the free list
 //point root to this block and point the old "first block" to this new block
 void add_to_list(block_t *block) {
+    dbg_requires(mm_checkheap(__LINE__));
+    printf("add to list \n");
     assert(get_alloc(block) == false);
     block_t *firstBlock = root;
-    if (firstBlock == NULL) {
+    if (root == NULL) {
+        printf("root is NULL \n");
         root = block;
+        block->next = NULL;
+        block->prev = root;
         return;
     }
     assert(firstBlock != NULL);
     root = block;
+    block->prev = root;
     block->next = firstBlock;
     firstBlock->prev = block;
+    printf("print the free list \n");
+    size_t counter = 0;
+    for (block = root; block != NULL; block = block->next) {
+        if (counter > 2) {
+            break;
+        }
+        printf("size: %zu   ", get_size(block));
+        counter += 1;
+        if (get_alloc(block)) {
+            printf("true \n");
+        }
+         if (!get_alloc(block)) {
+            printf("false \n");
+        }
+    }
     return;
 }
 
@@ -414,7 +436,9 @@ void add_to_list(block_t *block) {
 //2. the block is the last in the free list
 //For each case, also take care of prev/next being NULL
 void remove_from_list(block_t *block) {
-    assert(get_alloc(block) == false);
+    dbg_requires(mm_checkheap(__LINE__));
+    dbg_assert(get_alloc(block) == true);
+    //a block has to be allocated to be removed from the free list
     if (block == NULL) {
         return;
     }
@@ -431,7 +455,7 @@ void remove_from_list(block_t *block) {
         return;
     }
     if (nextBlock == NULL) {
-        if (prevBlock == root) {
+        if (prevBlock == NULL) {
             root = NULL;
             return;
         }
@@ -439,8 +463,12 @@ void remove_from_list(block_t *block) {
         prevBlock->next = NULL;
         return;
     }
+    dbg_assert((prevBlock != NULL) && (nextBlock != NULL));
+    dbg_requires(mm_checkheap(__LINE__));
+    dbg_assert(((size_t)nextBlock->payload) % 16 == 0);
     nextBlock->prev = prevBlock; //the normal case
     prevBlock->next = nextBlock;
+    dbg_ensures(mm_checkheap(__LINE__));
     return;
 }
 
@@ -460,6 +488,10 @@ static block_t *coalesce_block(block_t *block) {
     prevBlock = find_prev(block);
     nextBlock = find_next(block);
     prev_alloc = get_alloc(prevBlock);
+    if (prevBlock == block) {
+        //this happens when block refers to the first block on the heap
+        prev_alloc = true;
+    }
     next_alloc = get_alloc(nextBlock);
     if (prev_alloc && next_alloc) {
         //neither the prev not the next is free
@@ -551,7 +583,7 @@ static block_t *extend_heap(size_t size) {
     // Initialize free block header/footer
     block_t *block = payload_to_header(bp);
     write_block(block, size, false);
-
+    add_to_list(block);
     // Create new epilogue header
     block_t *block_next = find_next(block);
     write_epilogue(block_next);
@@ -573,6 +605,7 @@ static block_t *extend_heap(size_t size) {
  * @param[in] asize
  */
 static void split_block(block_t *block, size_t asize) {
+    dbg_requires(mm_checkheap(__LINE__));
     dbg_requires(get_alloc(block));
     /* TODO: Can you write a precondition about the value of asize? */
 
@@ -581,10 +614,9 @@ static void split_block(block_t *block, size_t asize) {
     if ((block_size - asize) >= min_block_size) {
         block_t *block_next;
         write_block(block, asize, true);
-        remove_from_list(block);
-
-        block_next = find_next(block);
+        block_next = (block_t *)((char*)block + asize);
         write_block(block_next, block_size - asize, false);
+        block_next = coalesce_block(block_next);
         add_to_list(block_next);
     }
     dbg_ensures(get_alloc(block));
@@ -602,11 +634,19 @@ static void split_block(block_t *block, size_t asize) {
  * @return
  */
 static block_t *find_fit(size_t asize) {
+    dbg_requires(mm_checkheap(__LINE__));
     block_t *block;
     if (root == NULL) {
         return NULL;
     }
-    for (block = root; block->next != NULL; block = block->next) {
+    for (block = root; block != NULL; block = block->next) {
+        printf("size: %zu   ", get_size(block));
+        if (get_alloc(block)) {
+            printf("true \n");
+        }
+        if (!get_alloc(block)) {
+            printf("false \n");
+        }
         if (asize <= get_size(block)) {
             assert(!(get_alloc(block)));
             return block;
@@ -630,29 +670,46 @@ bool mm_checkheap(int line) {
     //check that the epilogue and prologue both have size 0 and alloc true
     block_t *block; //current block
     block_t *nextBlock;
-    //size_t listCount = 0; //count # of free blocks by traversing the list
-    //size_t allCount = 0; //count # of free blocks by going over all blocks
+    block_t *prevBlock;
+    size_t listCount = 0; //count # of free blocks by traversing the list
+    size_t allCount = 0; //count # of free blocks by going over all blocks
     //check that each block's header and footer matches
     //check that each block is bigger than the minimum size
     //check that there are no consecutive free blocks
     for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
         size_t blockSize = get_size(block);
-        assert(blockSize >= 2 * dsize); 
+        dbg_assert(blockSize > 2 * dsize); 
         //2*dsize is the minimum size of a block
         word_t blockHeader = block->header;
         word_t blockFooter = *(header_to_footer(block));
-        assert(((char* )block) >= (char*) (mem_heap_lo())); 
+        dbg_assert(((char* )block) >= (char*) (mem_heap_lo()+8)); 
         //lie within boundary
-        assert(((char *)blockFooter) <= (char*) (mem_heap_hi()-7));
-        assert(extract_size(blockHeader) == extract_size(blockFooter));
-        assert(extract_alloc(blockHeader) == extract_alloc(blockFooter));
-        nextBlock = find_next(block);
+        dbg_assert(((char *)blockFooter) <= (char*) (mem_heap_hi()-7));
+        dbg_assert(((size_t)(block->payload)) % 16 == 0);
+        dbg_assert(extract_size(blockHeader) == extract_size(blockFooter));
+        dbg_assert(extract_alloc(blockHeader) == extract_alloc(blockFooter));
+        nextBlock = find_next(block); //no contiguous block has the same alloc
         assert(get_alloc(nextBlock) != get_alloc(block));
-        block_t *prevBlock = find_prev(block);
-        dbg_assert((char*)block >= (char*)prevBlock+get_size(prevBlock));
-        dbg_assert((char*)block+get_size(block) <= (char*)nextBlock);
+        if (!get_alloc(block)) {
+            allCount += 1;
+        }
+    }
+    if (root != NULL) {
+        for (block = root; block->next != NULL; block = block->next)
+        {
+            listCount += 1;
+            dbg_assert(!get_alloc(block));
+            prevBlock = block->prev;
+            if (prevBlock == NULL) {
+                dbg_assert(prevBlock == root);
+                break;
+            }
+            dbg_assert(prevBlock->next == block);
+            dbg_assert(block->prev == prevBlock);
+        }
     }
     return true;
+    dbg_assert(listCount == allCount);
 }
 
 /**
@@ -684,12 +741,11 @@ bool mm_init(void) {
 
     // Heap starts with first "block header", currently the epilogue
     heap_start = (block_t *)&(start[1]);
-
+    root = NULL;
     // Extend the empty heap with a free block of chunksize bytes
     if (extend_heap(chunksize) == NULL) {
         return false;
     }
-
     return true;
 }
 
@@ -707,17 +763,17 @@ bool mm_init(void) {
 
 void print_heap()
 {   block_t *block;
-    dbg_printf("print heap \n");
     for (block = heap_start; get_size(block) > 0; block = find_next(block))
     {
-        dbg_printf("size: %zu   ",get_size(block));
+        printf("new block: ");
+        printf("size: %zu   ",get_size(block));
         if (get_alloc(block)) {
-            dbg_printf("true");
-            dbg_printf("\n");
+            printf("true");
+            printf("\n");
         }
         if (!get_alloc(block)) {
-            dbg_printf("false");
-            dbg_printf("\n");
+            printf("false");
+            printf("\n");
         }
     }
     return;
@@ -780,12 +836,10 @@ void *malloc(size_t size) {
     // Mark block as allocated
     size_t block_size = get_size(block);
     write_block(block, block_size, true);
-
+    remove_from_list(block);
     // Try to split the block if too large
     split_block(block, asize);
-
     bp = header_to_payload(block);
-
     dbg_ensures(mm_checkheap(__LINE__));
     return bp;
 }
@@ -927,7 +981,6 @@ void *calloc(size_t elements, size_t size) {
 
     return bp;
 }
-
 
 /*
  *****************************************************************************
