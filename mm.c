@@ -114,11 +114,19 @@ typedef struct block {
     };
 } block_t;
 /* Global variables */
-static block_t *root; // root of the explicit list
+static block_t *root1 = NULL; //size[0,32)
+static block_t *root2 = NULL; //[32,64)
+static block_t *root3 = NULL; //[64,128)
+static block_t *root4 = NULL; //[128,256)
+static block_t *root5 = NULL; //[256,512)
+static block_t *root6 = NULL; //[512,1024)
+static block_t *root7 = NULL; //[1024,2048)
+static block_t *root8 = NULL; //[2048,+inf]
+//static block_t *roots[8];
+
 /** @brief Pointer to first block in the heap */
 static block_t *heap_start = NULL;
 static size_t listCount;
-
 /*
  *****************************************************************************
  * The functions below are short wrapper functions to perform                *
@@ -387,47 +395,131 @@ static block_t *find_prev(block_t *block) {
  * @return
  */
 
-void print_heap() {
-    block_t *block;
-    for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
-        printf("new block: ");
-        printf("size: %zu   ", get_size(block));
-        if (get_alloc(block)) {
-            printf("true");
-            printf("\n");
-        }
-        if (!get_alloc(block)) {
-            printf("false");
-            printf("\n");
-        }
+// void print_heap() {
+//     block_t *block;
+//     for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
+//         printf("new block: ");
+//         printf("size: %zu   ", get_size(block));
+//         if (get_alloc(block)) {
+//             printf("true");
+//             printf("\n");
+//         }
+//         if (!get_alloc(block)) {
+//             printf("false");
+//             printf("\n");
+//         }
+//     }
+//     return;
+// }
+
+// void print_list_helper(block_t *root) {
+//     block_t *block;
+//     printf("printing new list --> \n");
+//     if (root == NULL) { 
+//         printf("empty list\n");
+//         return;
+//     }
+//     for (block = root; block != NULL; block = block->next) {
+//         printf("size: %zu   ", get_size(block));
+//         if (get_alloc(block)) {
+//             printf("true");
+//             printf("\n");
+//         }
+//         if (!get_alloc(block)) {
+//             printf("false");
+//             printf("\n");
+//         }
+//     }
+//     return;
+// }
+
+
+static size_t find_list(size_t asize) {
+    //returns the index into the root list
+    if ((0 <= asize) && (asize < 32)) {
+        return 1;
     }
-    return;
+    if ((32 <= asize) && (asize < 64)) {
+        return 2;
+    }
+    if ((64 <= asize) && (asize < 128)) {
+        return 3;
+    }
+    if ((128 <= asize) && (asize < 256)) {
+        return 4;
+    }
+    if ((256 <= asize) && (asize < 512)) {
+        return 5;
+    }
+    if ((512 <= asize) && (asize < 1024)) {
+        return 6;
+    }
+    if ((1024 <= asize) && (asize < 2048)) {
+        return 7;
+    }
+    assert(asize >= 2048);
+    return 8;
 }
 
-void print_list() {
-    block_t *block;
-    printf("printing the list: \n");
-    for (block = root; block != NULL; block = block->next) {
-        printf("new free in list: ");
-        printf("size: %zu   ", get_size(block));
-        if (get_alloc(block)) {
-            printf("true");
-            printf("\n");
-        }
-        if (!get_alloc(block)) {
-            printf("false");
-            printf("\n");
-        }
+size_t rootToCounter(block_t **root) {
+    if (root == &root1) {
+        // printf("first NULL");
+        return 1;
     }
-    return;
+    if (root == &root2) {
+        return 2;
+    }
+    if (root == &root3) {
+        return 3;
+    }
+    if (root == &root4) {
+        return 4;
+    }
+    if (root == &root5) {
+        return 5;
+    }
+    if (root == &root6) {
+        return 6;
+    }
+    if (root == &root7) {
+        return 7;
+    }
+    // printf("found root");
+    return 8;
+}
+
+block_t** counterToRoot(size_t index) {
+    if (index == 1) {
+        return &root1;
+    }
+    if (index == 2) {
+        return &root2;
+    }
+    if (index == 3) {
+        return &root3;
+    }
+    if (index == 4) {
+        return &root4;
+    }
+    if (index == 5) {
+        return &root5;
+    }
+    if (index == 6) {
+        return &root6;
+    }
+    if (index == 7) {
+        return &root7;
+    }
+    return &root8;
 }
 
 void remove_from_list(block_t *block) {
     dbg_requires(mm_checkheap(__LINE__));
     dbg_assert(get_alloc(block) == true);
     // a block has to be allocated to be removed from the free list
-    dbg_assert(root != NULL);
-    dbg_assert(block != root);
+    // block_t *root = *counterToRoot(find_list(get_size(block)));
+    // assert(root != NULL);
+    // assert(block != root);
     if (block == NULL) {
         return;
     }
@@ -449,21 +541,26 @@ void remove_from_list(block_t *block) {
 void add_to_list(block_t *block) {
     dbg_requires(mm_checkheap(__LINE__));
     dbg_assert(get_alloc(block) == false);
-    listCount += 1;
-    // printf("blocks in list: %zu \n", listCount);
-    dbg_assert(root != NULL);
-    // printf("add to list -->\n");
+    block_t **root = counterToRoot(find_list(get_size(block)));
     // printf("block size: %zu \n", get_size(block));
-    if (root->next == NULL) {
-        // printf("adding first block");
-        root->next = block;
-        block->prev = root;
+    // printf("add to list\n");
+    // printf("pre listCount: %zu \n", listCount);
+    if ((*root) == NULL) {
+        *root = block;
+        (*root)->prev = NULL;
+        (*root)->next = NULL;
+    }
+    if ((*root)->next == NULL) {
+        // printf("add second\n");
+        (*root)->next = block;
+        block->prev = *root;
         block->next = NULL;
         return;
     }
-    block_t *firstBlock = root->next;
-    root->next = block;
-    block->prev = root;
+    // printf("add others\n");
+    block_t *firstBlock = (*root)->next;
+    (*root)->next = block;
+    block->prev = *root;
     block->next = firstBlock;
     firstBlock->prev = block;
     return;
@@ -501,7 +598,6 @@ static block_t *coalesce_block(block_t *block) {
     prev_alloc = get_alloc(prevBlock);
     if (prevBlock == block) {
         // this happens when block happens to be the first block on the heap
-        //("first block on the heap\n");
         prev_alloc = true;
     }
     next_alloc = get_alloc(nextBlock);
@@ -509,13 +605,11 @@ static block_t *coalesce_block(block_t *block) {
         next_alloc = true;
     }
     if (prev_alloc && next_alloc) {
-        // printf("neither is free\n");
         // neither the prev not the next is free
         add_to_list(block);
         return block;
     } else if (prev_alloc && !next_alloc) {
         // next block is free, write to the current block
-        // printf("next is free\n");
         next_size = get_size(nextBlock);
         remove_from_list(nextBlock);
         write_block(block, current_size + next_size, false);
@@ -523,9 +617,9 @@ static block_t *coalesce_block(block_t *block) {
         return block;
     } else if (!prev_alloc && next_alloc) {
         // prev block is free, write to the previous block
-        // printf("prev is free\n");
         prev_size = get_size(prevBlock);
-        if (prevBlock != root) {
+        block_t **root = counterToRoot(find_list(get_size(prevBlock)));
+        if (prevBlock != *root) {
             remove_from_list(prevBlock);
             write_block(prevBlock, current_size + prev_size, false);
             add_to_list(prevBlock);
@@ -534,9 +628,9 @@ static block_t *coalesce_block(block_t *block) {
         add_to_list(block);
         return block;
     } else {
-        // printf("both are free\n");
         dbg_assert((prevBlock != NULL) && (nextBlock != NULL));
-        if (prevBlock == root) {
+        block_t **root = counterToRoot(find_list(get_size(prevBlock)));
+        if (prevBlock == *root) {
             next_size = get_size(nextBlock);
             remove_from_list(nextBlock);
             write_block(block, current_size + next_size, false);
@@ -576,24 +670,16 @@ static block_t *extend_heap(size_t size) {
     // Initialize free block header/footer
     block_t *block = payload_to_header(bp);
     write_block(block, size, false);
-    if (root == NULL) {
-        // the root points is the first small block splitted from the new block
-        // printf("new root\n");
-        // split_block(block, 2 * dsize);
-        // //split block writes the block to be splitted to allocated, but it
-        // shall
-        // //be free here. We use split just to get the "dummy header" for the
-        // list write_block(block, 2 * dsize, false);
-        root = block;
-        root->prev = NULL;
-        root->next = NULL;
-        listCount = 1;
+    block_t **root = counterToRoot(find_list(get_size(block)));
+    if (*root == NULL) {
+        //do not colaesce a block if it is root
+        // printf("set root\n");
+        *root = block;
+        (*root)->prev = NULL;
+        (*root)->next = NULL;
         block_t *block_next = find_next(block);
         write_epilogue(block_next);
-        // assert(((void*)block_next) >= mem_heap_lo()+8);
-        // assert(((void*)block_next) <= mem_heap_hi()-7);
-        // the root would not be used to allocate
-        // print_list();
+        //The root of each list will be used as a dummy header, never allocated.
         return block;
     }
     // Create new epilogue header
@@ -627,14 +713,15 @@ static block_t *extend_heap(size_t size) {
  * @param[in] asize
  * @return
  */
-static block_t *find_fit(size_t asize) {
+
+static block_t *find_fit_helper(block_t *root, size_t asize) {
+    size_t count = 0; // count how many blocks are searched
     block_t *block;
+    block_t *bestBlock = NULL; // the best block found so far
+    size_t minSize = 0; // the minimum-sized block that fits
     if (root == NULL) {
         return NULL;
     }
-    size_t count = 0;          // count how many blocks are searched
-    size_t minSize = 0;        // the minimum-sized block that fits
-    block_t *bestBlock = NULL; // the best block found so far
     for (block = root; block != NULL; block = block->next) {
         count += 1;
         if (count > 10) {
@@ -660,7 +747,23 @@ static block_t *find_fit(size_t asize) {
             }
         }
     }
-    return bestBlock; // no fit found
+    return bestBlock; // no fit found, bestBlock should be NULL here
+}
+
+
+static block_t *find_fit(size_t asize) {
+    block_t *root = *counterToRoot(find_list(asize));
+    size_t rootIndex = rootToCounter(&root);
+    block_t *fitBlock = NULL;
+    size_t tmp;
+    for (tmp = rootIndex; tmp <= 8; tmp = tmp + 1) {
+        block_t *root = *counterToRoot(tmp);
+        fitBlock = find_fit_helper(root, asize);
+        if (fitBlock != NULL) {
+            return fitBlock;
+        }
+    }
+    return fitBlock;
 }
 
 /**
@@ -674,11 +777,25 @@ static block_t *find_fit(size_t asize) {
  * @param[in] line
  * @return
  */
+
+void checklist(block_t *root) {
+    block_t *block;
+    if (root != NULL) {
+        for (block = root; block->next != NULL; block = block->next) {
+            listCount += 1;
+            dbg_assert(!get_alloc(block));
+            block_t *prevBlock = block->prev;
+            if (prevBlock != root) {
+                dbg_assert(prevBlock->next == block);
+                dbg_assert(block->prev == prevBlock);
+            }
+        }
+    }
+    return;
+}
 bool mm_checkheap(int line) {
     block_t *block; // current block
     block_t *nextBlock;
-    block_t *prevBlock;
-    size_t listCount = 0; // count # of free blocks by traversing the list
     size_t allCount = 0;  // count # of free blocks by going over all blocks
     // check that each block's header and footer matches
     // check that each block is bigger than the minimum size
@@ -701,22 +818,15 @@ bool mm_checkheap(int line) {
             allCount += 1;
         }
     }
-    if (root != NULL) {
-        for (block = root; block->next != NULL; block = block->next) {
-            listCount += 1;
-            dbg_assert(!get_alloc(block));
-            prevBlock = block->prev;
-            if (prevBlock == NULL) {
-                dbg_assert(prevBlock == root);
-                break;
-            }
-            dbg_assert(prevBlock->next == block);
-            dbg_assert(block->prev == prevBlock);
-        }
-    }
-    //("listCount: %zu\n", listCount);
-    // printf("allCount: %zu\n", allCount);
-    dbg_assert(listCount == allCount);
+    checklist(root1);
+    checklist(root2);
+    checklist(root3);
+    checklist(root4);
+    checklist(root5);
+    checklist(root6);
+    checklist(root7);
+    checklist(root8);
+    dbg_assert(allCount == listCount);
     return true;
 }
 
@@ -732,7 +842,6 @@ bool mm_checkheap(int line) {
  */
 bool mm_init(void) {
     // Create the initial empty heap
-    // printf("-------init-------\n");
     word_t *start = (word_t *)(mem_sbrk(2 * wsize));
 
     if (start == (void *)-1) {
@@ -750,7 +859,14 @@ bool mm_init(void) {
 
     // Heap starts with first "block header", currently the epilogue
     heap_start = (block_t *)&(start[1]);
-    root = NULL; // the free list is empty at first, root is just NULL
+    root1 = NULL; //size[0,32)
+    root2 = NULL; //[32,64)
+    root3 = NULL; //[64,128)
+    root4 = NULL; //[128,256)
+    root5 = NULL; //[256,512)
+    root6 = NULL; //[512,1024)
+    root7 = NULL; //[1024,2048)
+    root8 = NULL; //[2048,+inf]
     // Extend the empty heap with a free block of chunksize bytes
     if (extend_heap(chunksize) == NULL) {
         return false;
@@ -792,11 +908,9 @@ void *malloc(size_t size) {
 
     // Search the free list for a fit
     block = find_fit(asize);
-
-    // If no fit is found, request more memory, and then and place the block
+    // If no fit is found, request more memory, and then place the block
     if (block == NULL) {
         // Always request at least chunksize
-        // printf("need to extend\n");
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
         // extend_heap returns an error
@@ -804,7 +918,6 @@ void *malloc(size_t size) {
             return bp;
         }
     }
-
     // The block should be marked as free
     dbg_assert(!get_alloc(block));
 
