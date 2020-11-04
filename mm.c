@@ -16,7 +16,9 @@
  *
  *************************************************************************
  *
- * @author Your Name <andrewid@andrew.cmu.edu>
+ * Name: Aichen Yao
+ * Andrew ID: aicheny
+ * GitHub ID: AichenYao
  */
 
 #include <assert.h>
@@ -122,9 +124,7 @@ static block_t *root4 = NULL; //[128,256)
 static block_t *root5 = NULL; //[256,512)
 static block_t *root6 = NULL; //[512,1024)
 static block_t *root7 = NULL; //[1024,2048)
-// static block_t *root8 = NULL; //[2048,4096)
-// static block_t *root9 = NULL; //[4096,8192)
-// static block_t *root10 = NULL; //[8192, inf)
+static block_t *root8 = NULL; //[4096,+inf)
 /** @brief Pointer to first block in the heap */
 static block_t *heap_start = NULL;
 
@@ -472,17 +472,10 @@ block_t **find_list(size_t asize) {
     if ((512 <= asize) && (asize < 1024)) {
         return &root6;
     }
-    // if ((1024 <= asize) && (asize < 2048)) {
-    //     return &root7;
-    // }
-    // if ((2048 <= asize) && (asize < 4096)) {
-    //     return &root8;
-    // }
-    // if ((4096 <= asize) && (asize < 8192)) {
-    //     return &root9;
-    // }
-    // dbg_assert(asize >= 8192);
-    return &root7;
+    if ((1024 <= asize) && (asize < 4096)) {
+        return &root7;
+    }
+    return &root8;
 }
 
 size_t addressToIndex(block_t **root) {
@@ -504,16 +497,10 @@ size_t addressToIndex(block_t **root) {
     if (root == &root6) {
         return 6;
     }
-    // if (root == &root7) {
-    //     return 7;
-    // }
-    // if (root == &root8) {
-    //     return 8;
-    // }
-    // if (root == &root9) {
-    //     return 9;
-    // }
-    return 7;
+    if (root == &root7) {
+        return 7;
+    }
+    return 8;
 }
 
 block_t **indexToAddress(size_t index) {
@@ -535,16 +522,10 @@ block_t **indexToAddress(size_t index) {
     if (index == 6) {
         return &root6;
     }
-    // if (index == 7) {
-    //     return &root7;
-    // }
-    // if (index == 8) {
-    //     return &root8;
-    // }
-    // if (index == 9) {
-    //     return &root9;
-    // }
-    return &root7;
+    if (index == 7) {
+        return &root7;
+    }
+    return &root8;
 }
 
 void remove_from_list(block_t *block) {
@@ -729,21 +710,10 @@ static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
     if (*rootAddress == NULL) {
         return NULL;
     }
-    // size_t count = 0;          // count how many blocks are searched
     size_t minSize = 0;        // the minimum-sized block that fits
     block_t *bestBlock = NULL; // the best block found so far
+    size_t count = 0;
     // for (block = *rootAddress; block != NULL; block = block->next) {
-    //     count += 1;
-    //     if (count > 15) {
-    //         if (bestBlock != NULL) {
-    //             return bestBlock;
-    //         } else {
-    //             if (asize <= get_size(block)) {
-    //                 dbg_assert(!get_alloc(block));
-    //                 return block;
-    //             }
-    //         }
-    //     }
     //     if (asize <= get_size(block)) {
     //         if (minSize == 0) {
     //             minSize = get_size(block);
@@ -756,7 +726,20 @@ static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
     //     }
     // }
     for (block = *rootAddress; block != NULL; block = block->next) {
-        if (asize <= get_size(block)) {
+        count += 1;
+        if (count > 45) {
+            if (bestBlock != NULL) {
+                return bestBlock;
+            } else {
+                assert(bestBlock == NULL);
+                if ((asize <= get_size(block))) {
+                    dbg_assert(!get_alloc(block));
+                    return block;
+                }
+            }
+        }
+        if ((asize <= get_size(block))) {
+            dbg_assert(count <= 45);
             if (minSize == 0) {
                 minSize = get_size(block);
                 bestBlock = block;
@@ -767,7 +750,7 @@ static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
             }
         }
     }
-    return bestBlock; // no fit found
+    return bestBlock; // no fit found, bestBlock should be NULL here
 }
 
 static block_t *find_fit(size_t asize) {
@@ -876,10 +859,8 @@ bool mm_init(void) {
     root4 = NULL; //[128, 256)
     root5 = NULL; //[256, 512)
     root6 = NULL; //[512, 1024)
-    root7 = NULL; //[1024, 2048)
-    // root8 = NULL; //[2048, 4096)
-    // root9 = NULL;  //[4096, 8192)
-    // root10 = NULL; //[8192, inf)
+    root7 = NULL; //[1024, 4096)
+    root8 = NULL; //[4096, inf)
     // Extend the empty heap with a free block of chunksize bytes
     if (extend_heap(chunksize) == NULL) {
         return false;
