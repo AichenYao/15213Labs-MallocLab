@@ -809,49 +809,49 @@ static block_t *find_fit(size_t asize) {
  * @param[in] line
  * @return
  */
+
+bool checkList (block_t **rootAddress) {
+    block_t *block;
+    if (*rootAddress == NULL) {
+        return true; //it is ok for a seg list to be empty
+    }
+    dbg_assert((*rootAddress)->prev == NULL);
+    for (block = *rootAddress; block != NULL; block = block->next) {
+        block_t *nextBlock = block->next;
+        if (nextBlock == NULL) {
+            //In case the current block is at the end, make sure its end point
+            //to NULL
+            dbg_assert(block->next == NULL);
+            return true;
+        }
+        dbg_assert(nextBlock->prev == block);
+        dbg_assert(block->next == nextBlock);
+    }
+    return true;
+}
+
 bool mm_checkheap(int line) {
-    // block_t *block; // current block
-    // block_t *nextBlock;
-    // // block_t *prevBlock;
-    // // size_t listCount = 0; // count # of free blocks by traversing the list
-    // size_t allCount = 0; // count # of free blocks by going over all blocks
-    // // check that each block's header and footer matches
-    // // check that each block is bigger than the minimum size
-    // // check that there are no consecutive free blocks
-    // for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
-    //     size_t blockSize = get_size(block);
-    //     dbg_assert(blockSize >= 2 * dsize);
-    //     // 2*dsize is the minimum size of a block
-    //     word_t blockHeader = block->header;
-    //     word_t blockFooter = *(header_to_footer(block));
-    //     dbg_assert(((char *)block) > (char *)(mem_heap_lo()));
-    //     // lie within boundary
-    //     dbg_assert(((char *)blockFooter) < (char *)(mem_heap_hi() - 7));
-    //     dbg_assert(((size_t)(block->payload)) % 16 == 0);
-    //     // dbg_assert(extract_size(blockHeader) == extract_size(blockFooter));
-    //     // dbg_assert(extract_alloc(blockHeader) == extract_alloc(blockFooter));
-    //     nextBlock = find_next(block); // no contiguous block has the same alloc
-    //     // assert(get_alloc(nextBlock) != get_alloc(block));
-    //     if (!get_alloc(block)) {
-    //         allCount += 1;
-    //     }
-    // }
-    // if (root != NULL) {
-    //     for (block = root; block->next != NULL; block = block->next) {
-    //         listCount += 1;
-    //         dbg_assert(!get_alloc(block));
-    //         prevBlock = block->prev;
-    //         if (prevBlock == NULL) {
-    //             dbg_assert(prevBlock == root);
-    //             break;
-    //         }
-    //         dbg_assert(prevBlock->next == block);
-    //         dbg_assert(block->prev == prevBlock);
-    //     }
-    // }
-    //("listCount: %zu\n", listCount);
-    // printf("allCount: %zu\n", allCount);
-    // dbg_assert(listCount == allCount);
+    block_t * block = NULL;
+    for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
+        dbg_assert((void*)block > mem_heap_lo());
+        dbg_assert((void*)block < mem_heap_hi());
+        if (get_alloc(block) == false) {
+            //if the block has a footer, make sure the footer and header matches
+            word_t *footer = header_to_footer(block);
+            dbg_assert(extract_alloc(block->header) == extract_alloc(*footer));
+            dbg_assert(extract_size(block->header) == extract_size(*footer));
+            dbg_assert(extract_prev_alloc(block->header) == 
+            extract_prev_alloc(*footer));
+        }
+    }
+    checkList(&root1);
+    checkList(&root2);
+    checkList(&root3);
+    checkList(&root4);
+    checkList(&root5);
+    checkList(&root6);
+    checkList(&root7);
+    checkList(&root8);
     return true;
 }
 
@@ -916,7 +916,7 @@ void *malloc(size_t size) {
     size_t extendsize; // Amount to extend heap if no fit is found
     block_t *block;
     void *bp = NULL;
-    //printf("malloc size %zu \n", size);
+    printf("malloc size %zu \n", size);
     // Initialize heap if it isn't initialized
     if (heap_start == NULL) {
         mm_init();
