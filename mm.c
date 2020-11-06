@@ -85,7 +85,7 @@ static const size_t wsize = sizeof(word_t);
 static const size_t dsize = 2 * wsize;
 
 /** @brief Minimum block size (bytes) */
-static const size_t min_block_size = dsize;
+static const size_t min_block_size = 2 * dsize;
 
 /**
  * TODO: explain what chunksize is
@@ -191,13 +191,15 @@ static word_t pack(size_t size, bool alloc) {
     if (alloc) {
         word |= alloc_mask;
     }
+    word |= prev_alloc_mask; //the default of prev_alloc should be 1
     return word;
 }
 
 //take in the original word and the prev_alloc status it is being updated to
 static word_t write_prev_alloc(word_t word, bool prev_alloc) {
-    if (prev_alloc) {
-        word |= prev_alloc_mask;
+    if (!prev_alloc) {
+        //if prevBlock becomes free, change the prev_alloc bit to 0
+        word = word & (~prev_alloc_mask);
     }
     return word;
 }
@@ -434,6 +436,17 @@ static block_t *find_prev(block_t *block) {
  * @return
  */
 
+void print_block (block_t *block) {
+    printf("size: %zu   ", get_size(block));
+        if (get_alloc(block)) {
+            printf("true");
+            printf("\n");
+        }
+        if (!get_alloc(block)) {
+            printf("false");
+            printf("\n");
+        }
+}
 
 void print_heap() {
     block_t *block;
@@ -571,6 +584,7 @@ block_t **indexToAddress(size_t index) {
     return &root8;
 }
 
+
 void remove_from_list(block_t *block) {
     dbg_requires(mm_checkheap(__LINE__));
     // a block has to be allocated to be removed from the free list
@@ -593,12 +607,8 @@ void remove_from_list(block_t *block) {
         return;
     }
     dbg_assert(nextBlock != NULL);
-    if (prevBlock == NULL) {
-        printf("prevBlock is NULL\n");
-    }
     prevBlock->next = nextBlock;
     nextBlock->prev = prevBlock;
-    printf("got here before\n");
     return;
 }
 
@@ -687,6 +697,7 @@ static block_t *coalesce_block(block_t *block) {
         add_to_list(prevBlock);
         return prevBlock;
     } else {
+        dbg_assert((!prev_alloc) && (!next_alloc));
         remove_from_list(prevBlock);
         remove_from_list(nextBlock);
         write_block(prevBlock, current_size + prev_size + next_size, false);
@@ -758,7 +769,7 @@ static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
     size_t count = 0;
     for (block = *rootAddress; block != NULL; block = block->next) {
         count += 1;
-        if (count > 45) {
+        if (count > 40) {
             if (bestBlock != NULL) {
                 return bestBlock;
             } else {
@@ -770,7 +781,7 @@ static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
             }
         }
         if ((asize <= get_size(block))) {
-            dbg_assert(count <= 45);
+            dbg_assert(count <= 40);
             if (minSize == 0) {
                 minSize = get_size(block);
                 bestBlock = block;
@@ -916,8 +927,6 @@ void *malloc(size_t size) {
     size_t extendsize; // Amount to extend heap if no fit is found
     block_t *block;
     void *bp = NULL;
-    printf("malloc size %zu \n", size);
-    // Initialize heap if it isn't initialized
     if (heap_start == NULL) {
         mm_init();
     }
@@ -936,7 +945,6 @@ void *malloc(size_t size) {
     // If no fit is found, request more memory, and then and place the block
     if (block == NULL) {
         // Always request at least chunksize
-        // printf("need to extend\n");
         extendsize = max(asize, chunksize);
         block = extend_heap(extendsize);
         // extend_heap returns an error
@@ -973,7 +981,6 @@ void *malloc(size_t size) {
  */
 void free(void *bp) {
     dbg_requires(mm_checkheap(__LINE__));
-    //printf("called free\n");
     if (bp == NULL) {
         return;
     }
@@ -984,7 +991,6 @@ void free(void *bp) {
     dbg_ensures(!get_alloc(block));
     dbg_ensures((get_size(block) % 16) == 0);
     dbg_ensures(mm_checkheap(__LINE__));
-    //printf("finished free\n");
     return;
 }
 
