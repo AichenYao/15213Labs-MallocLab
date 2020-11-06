@@ -102,10 +102,10 @@ static const size_t chunksize = (1 << 12);
 static const word_t alloc_mask = 0x1;
 static const word_t prev_alloc_mask = 0x2;
 
-
- //* TODO: explain what size_mask is
- //* size mask (with &) gets gets all bits but the last four, which represents the
- //* size of a block
+//* TODO: explain what size_mask is
+//* size mask (with &) gets gets all bits but the last four, which represents
+//the
+//* size of a block
 
 static const word_t size_mask = ~(word_t)0xF;
 
@@ -191,14 +191,14 @@ static word_t pack(size_t size, bool alloc) {
     if (alloc) {
         word |= alloc_mask;
     }
-    word |= prev_alloc_mask; //the default of prev_alloc should be 1
+    word |= prev_alloc_mask; // the default of prev_alloc should be 1
     return word;
 }
 
-//take in the original word and the prev_alloc status it is being updated to
+// take in the original word and the prev_alloc status it is being updated to
 static word_t write_prev_alloc(word_t word, bool prev_alloc) {
     if (!prev_alloc) {
-        //if prevBlock becomes free, change the prev_alloc bit to 0
+        // if prevBlock becomes free, change the prev_alloc bit to 0
         word = word & (~prev_alloc_mask);
     }
     return word;
@@ -283,7 +283,7 @@ static block_t *footer_to_header(word_t *footer) {
  */
 static size_t get_payload_size(block_t *block) {
     size_t asize = get_size(block);
-    return asize - dsize;
+    return asize - wsize;
 }
 
 /**
@@ -313,7 +313,6 @@ static bool get_alloc(block_t *block) {
 static bool get_prev_alloc(block_t *block) {
     return extract_prev_alloc(block->header);
 }
-
 
 /**
  * @brief Writes an epilogue header at the given address.
@@ -359,7 +358,7 @@ static void write_block(block_t *block, size_t size, bool alloc) {
     block->header = pack(size, alloc);
     write_next_block(block, alloc);
     if (alloc == false) {
-        //only add a footer if this block becomes free
+        // only add a footer if this block becomes free
         word_t *footerp = header_to_footer(block);
         *footerp = pack(size, alloc);
         return;
@@ -367,10 +366,9 @@ static void write_block(block_t *block, size_t size, bool alloc) {
     return;
 }
 
-//When we change the alloc status of a block, we update the prev_alloc status
-//of the next block. 
-//param: takes in the block being changed
-
+// When we change the alloc status of a block, we update the prev_alloc status
+// of the next block.
+// param: takes in the block being changed
 
 /**
  * @brief Finds the next consecutive block on the heap.
@@ -436,16 +434,16 @@ static block_t *find_prev(block_t *block) {
  * @return
  */
 
-void print_block (block_t *block) {
+void print_block(block_t *block) {
     printf("size: %zu   ", get_size(block));
-        if (get_alloc(block)) {
-            printf("true");
-            printf("\n");
-        }
-        if (!get_alloc(block)) {
-            printf("false");
-            printf("\n");
-        }
+    if (get_alloc(block)) {
+        printf("true");
+        printf("\n");
+    }
+    if (!get_alloc(block)) {
+        printf("false");
+        printf("\n");
+    }
 }
 
 void print_heap() {
@@ -456,7 +454,7 @@ void print_heap() {
         if (get_alloc(block)) {
             printf("true");
             printf("\n");
-       }
+        }
         if (!get_alloc(block)) {
             printf("false");
             printf("\n");
@@ -468,7 +466,7 @@ void print_heap() {
 void print_list_helper(block_t *root) {
     block_t *block;
     printf("printing new list --> \n");
-    if (root == NULL) { 
+    if (root == NULL) {
         printf("empty list\n");
         return;
     }
@@ -486,8 +484,7 @@ void print_list_helper(block_t *root) {
     return;
 }
 
-void print_list()
-{
+void print_list() {
     printf("root1   ");
     print_list_helper(root1);
     printf("root2   ");
@@ -584,7 +581,6 @@ block_t **indexToAddress(size_t index) {
     return &root8;
 }
 
-
 void remove_from_list(block_t *block) {
     dbg_requires(mm_checkheap(__LINE__));
     // a block has to be allocated to be removed from the free list
@@ -667,7 +663,7 @@ static block_t *coalesce_block(block_t *block) {
     size_t next_size = get_size(nextBlock);
     size_t prev_size = 0;
     if (!prev_alloc) {
-        //only get the prevBlock if it is free
+        // only get the prevBlock if it is free
         prevBlock = find_prev(block);
         prev_size = get_size(prevBlock);
     }
@@ -769,7 +765,7 @@ static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
     size_t count = 0;
     for (block = *rootAddress; block != NULL; block = block->next) {
         count += 1;
-        if (count > 40) {
+        if (count > 50) {
             if (bestBlock != NULL) {
                 return bestBlock;
             } else {
@@ -781,7 +777,7 @@ static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
             }
         }
         if ((asize <= get_size(block))) {
-            dbg_assert(count <= 40);
+            dbg_assert(count <= 50);
             if (minSize == 0) {
                 minSize = get_size(block);
                 bestBlock = block;
@@ -821,17 +817,17 @@ static block_t *find_fit(size_t asize) {
  * @return
  */
 
-bool checkList (block_t **rootAddress) {
+bool checkList(block_t **rootAddress) {
     block_t *block;
     if (*rootAddress == NULL) {
-        return true; //it is ok for a seg list to be empty
+        return true; // it is ok for a seg list to be empty
     }
     dbg_assert((*rootAddress)->prev == NULL);
     for (block = *rootAddress; block != NULL; block = block->next) {
         block_t *nextBlock = block->next;
         if (nextBlock == NULL) {
-            //In case the current block is at the end, make sure its end point
-            //to NULL
+            // In case the current block is at the end, make sure its end point
+            // to NULL
             dbg_assert(block->next == NULL);
             return true;
         }
@@ -842,17 +838,18 @@ bool checkList (block_t **rootAddress) {
 }
 
 bool mm_checkheap(int line) {
-    block_t * block = NULL;
+    block_t *block = NULL;
     for (block = heap_start; get_size(block) > 0; block = find_next(block)) {
-        dbg_assert((void*)block > mem_heap_lo());
-        dbg_assert((void*)block < mem_heap_hi());
+        dbg_assert((void *)block > mem_heap_lo());
+        dbg_assert((void *)block < mem_heap_hi());
         if (get_alloc(block) == false) {
-            //if the block has a footer, make sure the footer and header matches
+            // if the block has a footer, make sure the footer and header
+            // matches
             word_t *footer = header_to_footer(block);
             dbg_assert(extract_alloc(block->header) == extract_alloc(*footer));
             dbg_assert(extract_size(block->header) == extract_size(*footer));
-            dbg_assert(extract_prev_alloc(block->header) == 
-            extract_prev_alloc(*footer));
+            dbg_assert(extract_prev_alloc(block->header) ==
+                       extract_prev_alloc(*footer));
         }
     }
     checkList(&root1);
@@ -938,7 +935,10 @@ void *malloc(size_t size) {
     }
 
     // Adjust block size to include overhead and to meet alignment requirements
-    asize = round_up(size + dsize, dsize);
+    asize = round_up(size + wsize, dsize);
+    if (asize < min_block_size) {
+        asize = min_block_size;
+    }
     // Search the free list for a fit
     block = find_fit(asize);
 
