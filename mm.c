@@ -107,13 +107,35 @@ static const word_t prev_alloc_mask = 0x2;
 //the
 //* size of a block
 
+//Overview (Header Comment):
+//Each block, allocated or freed, is organized as a struct containing fields
+//that record their size, content. A free block also contains a prev and next
+//pointer that points to the next and previous free block in the list that it 
+//belongs to. When I implemented removing footers, only free blocks contain 
+//footers now so that it could be found on a heap using find_prev() function.
+
+//The allocator keeps track of all free blocks in segregated, doubly-linked
+//lists. The lists are segregated based on the size of the blocks. For example, 
+//blocks from size 0 to 32 belong to one list, and blocks from size 32 to 64 all
+//belong to another list.
+
+//When handling a malloc request, the allocator would compute the size needed 
+//and search in the respective list to find a block that could fit that request.
+//If found, it would remove that block from the list it was in and mark it as
+//allocated. Meanwhile, while handling a free request, it would mark the block
+//as unallocated, and place it in a free list based on its size. Functions
+//add_to_list() and remove_from_list() perform these tasks.
+
 static const word_t size_mask = ~(word_t)0xF;
 
 /** @brief Represents the header and payload of one block in the heap */
 typedef struct block {
     /** @brief Header contains size + allocation flag */
     word_t header;
-    union {
+    union {  //union store multiple fields at the same location
+    //in this case, if the block is a free block, it would have no payload but
+    //just prev and next pointers pointing to the previous and next block on 
+    //the list
         struct {
             struct block *prev;
             struct block *next;
@@ -122,7 +144,9 @@ typedef struct block {
     };
 } block_t;
 /* Global variables */
-// roots of the lists
+// roots of the lists, the sizes of block that each list store is commented on
+// the right. [32,64) is inclusive of the lower bound, 32, and exclusive of the 
+// upper bound, 64.
 static block_t *root1 = NULL; // size[0,32)
 static block_t *root2 = NULL; //[32,64)
 static block_t *root3 = NULL; //[64,128)
@@ -130,7 +154,7 @@ static block_t *root4 = NULL; //[128,256)
 static block_t *root5 = NULL; //[256,512)
 static block_t *root6 = NULL; //[512,1024)
 static block_t *root7 = NULL; //[1024,2048)
-static block_t *root8 = NULL; //[4096,+inf)
+static block_t *root8 = NULL; //[2048,+inf)
 /** @brief Pointer to first block in the heap */
 static block_t *heap_start = NULL;
 
@@ -195,7 +219,7 @@ static word_t pack(size_t size, bool alloc) {
     return word;
 }
 
-// take in the original word and the prev_alloc status it is being updated to
+//@param[in] the original header and the current prev_alloc status 
 static word_t write_prev_alloc(word_t word, bool prev_alloc) {
     if (!prev_alloc) {
         // if prevBlock becomes free, change the prev_alloc bit to 0
@@ -298,6 +322,9 @@ static bool extract_alloc(word_t word) {
     return (bool)(word & alloc_mask);
 }
 
+//@param[in] the header of a block
+//@return if the prev_alloc (2nd to last bit) status. If false, then the 
+//previous block is free; vice versa.
 static bool extract_prev_alloc(word_t word) {
     return (bool)(word & prev_alloc_mask);
 }
@@ -310,6 +337,9 @@ static bool get_alloc(block_t *block) {
     return extract_alloc(block->header);
 }
 
+//@param[in] a block
+//@return if the prev_alloc (2nd to last bit) status. If false, then the 
+//previous block is free; vice versa.
 static bool get_prev_alloc(block_t *block) {
     return extract_prev_alloc(block->header);
 }
@@ -333,6 +363,8 @@ static block_t *find_next(block_t *block) {
     return (block_t *)((char *)block + get_size(block));
 }
 
+//param[in] a block and its current alloc status
+//update the prev_alloc bit of the next block (on the heap)
 static void write_next_block(block_t *block, bool alloc) {
     dbg_requires(block != NULL);
     block_t *nextBlock = find_next(block);
@@ -504,9 +536,12 @@ void print_list() {
     return;
 }
 
+//param[in] a size 
+//find the list that a block of this size belongs to
+//@return the address return the address of the root of the list
+//return the address, instead of the root itself to avoid aliasing when
+//all roots point to NULL initially
 block_t **find_list(size_t asize) {
-    // takes in the size of a block, return the address of the root of the list
-    // which the block belongs to
     if ((0 <= asize) && (asize < 32)) {
         return &root1;
     }
@@ -525,12 +560,14 @@ block_t **find_list(size_t asize) {
     if ((512 <= asize) && (asize < 1024)) {
         return &root6;
     }
-    if ((1024 <= asize) && (asize < 4096)) {
+    if ((1024 <= asize) && (asize < 8192)) {
         return &root7;
     }
     return &root8;
 }
 
+//param[in] address of a root
+//@return index of the root, root1 is assigned with 1, root2 is assigned with 2
 size_t addressToIndex(block_t **root) {
     if (root == &root1) {
         return 1;
@@ -556,6 +593,11 @@ size_t addressToIndex(block_t **root) {
     return 8;
 }
 
+//param[in] an index
+//@return an index to the address of a root. 1 is being mapped to the address of
+//root1
+//This is the "opposite" version of addressToIndex(). These two functions are 
+//used in find_fit() to traverse the seglists one by one
 block_t **indexToAddress(size_t index) {
     if (index == 1) {
         return &root1;
@@ -581,16 +623,22 @@ block_t **indexToAddress(size_t index) {
     return &root8;
 }
 
+//param[in] a block to be removed from one of the free lists
+//find the root that it belongs to, remove it from that list
 void remove_from_list(block_t *block) {
     dbg_requires(mm_checkheap(__LINE__));
     // a block has to be allocated to be removed from the free list
     block_t **rootAddress = find_list(get_size(block));
     dbg_assert(*rootAddress != NULL);
     if (block == *rootAddress) {
+        //if the block is the root
         if ((*rootAddress)->next == NULL) {
+            //if the root was the only element
             *rootAddress = NULL;
             return;
         }
+        //if there were other elements other than the root
+        //the prev of the root should always point to NULL
         *rootAddress = (*rootAddress)->next;
         (*rootAddress)->prev = NULL;
         return;
@@ -599,15 +647,19 @@ void remove_from_list(block_t *block) {
     dbg_assert(prevBlock != NULL);
     block_t *nextBlock = block->next;
     if (nextBlock == NULL) {
+        //if the block was at the end of a seg list
         prevBlock->next = NULL;
         return;
     }
     dbg_assert(nextBlock != NULL);
+    //if the block has a non-NULL prev and next block
     prevBlock->next = nextBlock;
     nextBlock->prev = prevBlock;
     return;
 }
 
+//param[in] a block to be added to one of the free lists
+//find the root that it belongs to, add it to that list
 void add_to_list(block_t *block) {
     dbg_requires(mm_checkheap(__LINE__));
     dbg_assert(get_alloc(block) == false);
@@ -636,6 +688,9 @@ void add_to_list(block_t *block) {
     return;
 }
 
+//param[in] a block that tries to split, asize: the size that is allcoated
+//asize cannot be used, check if (block_size-asize) is large enough to be a 
+//block by itself
 static void split_block(block_t *block, size_t asize) {
     dbg_requires(asize >= 2 * dsize);
 
@@ -644,6 +699,7 @@ static void split_block(block_t *block, size_t asize) {
     if ((block_size - asize) >= min_block_size) {
         block_t *block_next;
         write_block(block, asize, true);
+        //if it could be split, then there are two blocks now, write both
         block_next = find_next(block);
         write_block(block_next, block_size - asize, false);
         add_to_list(block_next);
@@ -651,6 +707,13 @@ static void split_block(block_t *block, size_t asize) {
     dbg_ensures(get_alloc(block));
 }
 
+//param[in] a block to be coalesced
+//check if the previous or next block on the heap is free. If so, make them one
+//large block and add it to the proper list. The blocks being combined with 
+//others need to be removed from the old lists they belong to.
+//When implementing "removing footers", check the prev_alloc status first.
+//Only use find_prev() if we already know the previous block is free.
+//@return the new block, possibly being coalesced.
 static block_t *coalesce_block(block_t *block) {
     dbg_requires(mm_checkheap(__LINE__));
     dbg_requires(block != NULL);
@@ -684,6 +747,8 @@ static block_t *coalesce_block(block_t *block) {
         // next block is free, write to the current block
         remove_from_list(nextBlock);
         write_block(block, current_size + next_size, false);
+        //combine their size, write to block since that is the start of this
+        //"large new block"
         add_to_list(block);
         return block;
     } else if (!prev_alloc && next_alloc) {
@@ -693,6 +758,7 @@ static block_t *coalesce_block(block_t *block) {
         add_to_list(prevBlock);
         return prevBlock;
     } else {
+        //when both prevBlock and nextBlock are free
         dbg_assert((!prev_alloc) && (!next_alloc));
         remove_from_list(prevBlock);
         remove_from_list(nextBlock);
@@ -706,13 +772,9 @@ static block_t *coalesce_block(block_t *block) {
 /**
  * @brief
  *
- * <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
- *
  * @param[in] size
- * @return
+ * @return When no block on the heap could fit, extend the heap by a new block
+ * of the size as given by the input.
  */
 static block_t *extend_heap(size_t size) {
     void *bp;
@@ -732,70 +794,43 @@ static block_t *extend_heap(size_t size) {
     return block;
 }
 
-/**
- * @brief
- *
- * <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
- *
- * @param[in] block
- * @param[in] asize
- */
 
-/**
- * @brief
- *
- * <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
- *
- * @param[in] asize
- * @return
- */
+//param[in] asize: size being requested, the address of a root: the list to
+//search from
+//@return: search if any block in the list could be at least asize large
+//better fit implementation: after find a fit block, use best fit for the
+//next 50 blocks
 static block_t *find_fit_helper(size_t asize, block_t **rootAddress) {
     block_t *block;
-    if (*rootAddress == NULL) {
-        return NULL;
-    }
-    size_t minSize = 0;        // the minimum-sized block that fits
-    block_t *bestBlock = NULL; // the best block found so far
+    block_t *bestBlock = NULL;
     size_t count = 0;
     for (block = *rootAddress; block != NULL; block = block->next) {
-        count += 1;
-        if (count > 50) {
-            if (bestBlock != NULL) {
-                return bestBlock;
-            } else {
-                assert(bestBlock == NULL);
-                if ((asize <= get_size(block))) {
-                    dbg_assert(!get_alloc(block));
-                    return block;
-                }
+        if ((asize <= get_size(block)) && (bestBlock == NULL)) {
+            bestBlock = block;
+        }
+        if (bestBlock != NULL) {
+            count += 1;
+            if ((asize <= get_size(block)) && 
+            (get_size(block) < get_size(bestBlock))) {
+                bestBlock = block;
             }
         }
-        if ((asize <= get_size(block))) {
-            dbg_assert(count <= 50);
-            if (minSize == 0) {
-                minSize = get_size(block);
-                bestBlock = block;
-            }
-            if (get_size(block) < minSize) {
-                minSize = get_size(block);
-                bestBlock = block;
-            }
+        if ((bestBlock != NULL) && (count > 50)) {
+            return bestBlock;
         }
     }
-    return bestBlock; // no fit found, bestBlock should be NULL here
+    return bestBlock;
 }
 
+//param[in] asize: size being requested
+//@return search all lists needed to find a block that could fit
 static block_t *find_fit(size_t asize) {
     block_t **rootAddress = find_list(asize);
     size_t startIndex = addressToIndex(rootAddress);
     block_t *fitBlock;
     for (size_t index = startIndex; index <= 8; index++) {
+        //start from the list this size should belongs to. If not found,
+        //search from the list with the next larger bucket size
         block_t **cur_rootAddress = indexToAddress(index);
         fitBlock = find_fit_helper(asize, cur_rootAddress);
         if (fitBlock != NULL) {
@@ -873,6 +908,8 @@ bool mm_checkheap(int line) {
  *
  * @return
  */
+//initialize all data structures such as the heap_start and each of the seg
+//free list
 bool mm_init(void) {
     // Create the initial empty heap
     word_t *start = (word_t *)(mem_sbrk(2 * wsize));
@@ -899,7 +936,7 @@ bool mm_init(void) {
     root5 = NULL; //[256, 512)
     root6 = NULL; //[512, 1024)
     root7 = NULL; //[1024, 4096)
-    root8 = NULL; //[4096, inf)
+    root8 = NULL; //[4096, 8192)
     // Extend the empty heap with a free block of chunksize bytes
     if (extend_heap(chunksize) == NULL) {
         return false;
@@ -909,14 +946,9 @@ bool mm_init(void) {
 
 /**
  * @brief
- *
- * <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
- *
- * @param[in] size
- * @return
+ 
+ * @param[in] size from a malloc request
+ * find for a fit block, if not found, extend heap to get a new block that fit
  */
 void *malloc(size_t size) {
     dbg_requires(mm_checkheap(__LINE__));
@@ -937,6 +969,8 @@ void *malloc(size_t size) {
     // Adjust block size to include overhead and to meet alignment requirements
     asize = round_up(size + wsize, dsize);
     if (asize < min_block_size) {
+        //asize has to be at least min_block_size, any size smaller would cause
+        //a segmentation fault
         asize = min_block_size;
     }
     // Search the free list for a fit
@@ -971,13 +1005,8 @@ void *malloc(size_t size) {
 
 /**
  * @brief
- *
- * <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
- *
- * @param[in] bp
+ * @param[in] bp that points to an allocated block
+ * free that block, change its alloc status, coalesce and add to the proper list
  */
 void free(void *bp) {
     dbg_requires(mm_checkheap(__LINE__));
@@ -996,14 +1025,8 @@ void free(void *bp) {
 
 /**
  * @brief
- *
- * <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
- *
- * @param[in] ptr
- * @param[in] size
+ * @param[in] ptr：a block to be reallocated, size: the size it should have now
+ * @param[in] the newly allocated block
  * @return
  */
 void *realloc(void *ptr, size_t size) {
@@ -1033,6 +1056,7 @@ void *realloc(void *ptr, size_t size) {
     // Copy the old data
     copysize = get_payload_size(block); // gets size of old payload
     if (size < copysize) {
+        //if the newsize is smaller, make copysize this new size
         copysize = size;
     }
     memcpy(newptr, ptr, copysize);
@@ -1051,9 +1075,9 @@ void *realloc(void *ptr, size_t size) {
  * <What is the function's return value?>
  * <Are there any preconditions or postconditions?>
  *
- * @param[in] elements
- * @param[in] size
- * @return
+ * @param[in] elements and the size of those elements
+ * @return compute the size that request needs (asize), malloc and initialize 
+ * all elements to zero.
  */
 void *calloc(size_t elements, size_t size) {
     void *bp;
